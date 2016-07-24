@@ -141,7 +141,7 @@ public class AccumuloConfig
     }
 
     @Config(METADATA_MANAGER_CLASS)
-    @ConfigDescription("Sets the AccumulMetadataManager class name")
+    @ConfigDescription("Sets the AccumuloMetadataManager class name")
     public void setMetadataManagerClass(String mmClass)
     {
         this.metaManClass = mmClass;

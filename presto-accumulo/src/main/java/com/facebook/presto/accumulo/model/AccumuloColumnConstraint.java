@@ -14,6 +14,7 @@
 package com.facebook.presto.accumulo.model;
 
 import com.facebook.presto.spi.predicate.Domain;
+import com.facebook.presto.spi.type.Type;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
@@ -29,6 +30,7 @@ public class AccumuloColumnConstraint
     private final String name;
     private final String family;
     private final String qualifier;
+    private final Type type;
     private final boolean indexed;
     private Optional<Domain> domain;
 
@@ -37,12 +39,14 @@ public class AccumuloColumnConstraint
             @JsonProperty("name") String name,
             @JsonProperty("family") String family,
             @JsonProperty("qualifier") String qualifier,
+            @JsonProperty("type") Type type,
             @JsonProperty("domain") Optional<Domain> domain,
             @JsonProperty("indexed") boolean indexed)
     {
         this.name = requireNonNull(name, "name is null");
         this.family = requireNonNull(family, "family is null");
         this.qualifier = requireNonNull(qualifier, "qualifier is null");
+        this.type = requireNonNull(type, "type is null");
         this.indexed = requireNonNull(indexed, "indexed is null");
         this.domain = requireNonNull(domain, "domain is null");
     }
@@ -72,6 +76,12 @@ public class AccumuloColumnConstraint
     }
 
     @JsonProperty
+    public Type getType()
+    {
+        return type;
+    }
+
+    @JsonProperty
     public Optional<Domain> getDomain()
     {
         return domain;
@@ -86,7 +96,7 @@ public class AccumuloColumnConstraint
     @Override
     public int hashCode()
     {
-        return Objects.hash(name, family, qualifier, domain, indexed);
+        return Objects.hash(name, family, qualifier, type, domain, indexed);
     }
 
     @Override
@@ -104,6 +114,7 @@ public class AccumuloColumnConstraint
         return Objects.equals(this.name, other.name)
                 && Objects.equals(this.family, other.family)
                 && Objects.equals(this.qualifier, other.qualifier)
+                && Objects.equals(this.type, other.type)
                 && Objects.equals(this.domain, other.domain)
                 && Objects.equals(this.indexed, other.indexed);
     }
@@ -114,6 +125,7 @@ public class AccumuloColumnConstraint
                 .add("name", this.name)
                 .add("family", this.family)
                 .add("qualifier", this.qualifier)
+                .add("type", this.type)
                 .add("indexed", this.indexed)
                 .add("domain", this.domain)
                 .toString();

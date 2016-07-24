@@ -16,6 +16,7 @@ package com.facebook.presto.accumulo.io;
 import com.facebook.presto.accumulo.Types;
 import com.facebook.presto.accumulo.conf.AccumuloConfig;
 import com.facebook.presto.accumulo.index.Indexer;
+import com.facebook.presto.accumulo.index.metrics.MetricsWriter;
 import com.facebook.presto.accumulo.metadata.AccumuloTable;
 import com.facebook.presto.accumulo.model.AccumuloColumnHandle;
 import com.facebook.presto.accumulo.model.Field;
@@ -80,6 +81,7 @@ public class AccumuloPageSink
     private final BatchWriter writer;
     private final MultiTableBatchWriter multiTableBatchWriter;
     private final Optional<Indexer> indexer;
+    private final MetricsWriter metricsWriter;
     private final List<AccumuloColumnHandle> columns;
     private final int rowIdOrdinal;
     private long numRows = 0L;
@@ -115,14 +117,17 @@ public class AccumuloPageSink
 
             // If the table is indexed, create an instance of an Indexer, else empty
             if (table.isIndexed()) {
+                metricsWriter = table.getMetricsStorageInstance(connector, config).newWriter(table);
                 indexer = Optional.of(
                         new Indexer(
+                                config,
                                 connector.securityOperations().getUserAuthorizations(config.getUsername()),
                                 table,
                                 multiTableBatchWriter.getBatchWriter(table.getIndexTableName()),
-                                multiTableBatchWriter.getBatchWriter(table.getMetricsTableName())));
+                                metricsWriter));
             }
             else {
+                metricsWriter = null;
                 indexer = Optional.empty();
             }
         }
@@ -283,7 +288,8 @@ public class AccumuloPageSink
         try {
             // Done serializing rows, so flush and close all batch writers
             if (indexer.isPresent()) {
-                indexer.get().addMetricMutations();
+                // MetricsWriter is non-null if Indexer is present
+                metricsWriter.close();
             }
             multiTableBatchWriter.close();
         }
@@ -305,8 +311,8 @@ public class AccumuloPageSink
     {
         try {
             if (indexer.isPresent()) {
-                indexer.get().addMetricMutations();
                 // MetricsWriter is non-null if Indexer is present
+                metricsWriter.flush();
             }
             multiTableBatchWriter.flush();
         }
