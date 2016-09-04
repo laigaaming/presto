@@ -14,6 +14,7 @@
 package com.facebook.presto.accumulo.conf;
 
 import com.facebook.presto.accumulo.index.metrics.AccumuloMetricsStorage;
+import com.facebook.presto.accumulo.index.metrics.RedisMetricsStorage;
 import com.facebook.presto.accumulo.serializers.AccumuloRowSerializer;
 import com.facebook.presto.accumulo.serializers.LexicoderRowSerializer;
 import com.facebook.presto.accumulo.serializers.StringRowSerializer;
@@ -122,14 +123,15 @@ public final class AccumuloTableProperties
 
         PropertyMetadata<String> s8 =
                 new PropertyMetadata<>(METRICS_STORAGE,
-                        "Metrics storage to use for this table.  Can either be 'default', 'accumulo', or a Java class name. Default is 'default', i.e. the value from MetricsStorage.getDefault(), i.e. 'accumulo'.",
+                        "Metrics storage to use for this table.  Can either be 'default', 'accumulo', 'redis', or a Java class name. Default is 'default', i.e. the value from MetricsStorage.getDefault(), i.e. 'accumulo'.",
                         VarcharType.VARCHAR,
                         String.class,
                         AccumuloMetricsStorage.class.getCanonicalName(),
                         false,
                         x -> x.equals("default") || x.equals("accumulo")
                                 ? AccumuloMetricsStorage.class.getCanonicalName()
-                                : (String) x,
+                                : (x.equals("redis") ? RedisMetricsStorage.class.getCanonicalName()
+                                : (String) x),
                         object -> object);
 
         PropertyMetadata<Boolean> s9 = booleanSessionProperty(

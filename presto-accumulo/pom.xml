@@ -367,6 +367,11 @@
             <artifactId>log4j</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>redis.clients</groupId>
+            <artifactId>jedis</artifactId>
+        </dependency>
+
         <!-- Presto SPI -->
         <dependency>
             <groupId>com.facebook.presto</groupId>
@@ -427,6 +432,12 @@
         <dependency>
             <groupId>org.testng</groupId>
             <artifactId>testng</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.orange.redis-embedded</groupId>
+            <artifactId>embedded-redis</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

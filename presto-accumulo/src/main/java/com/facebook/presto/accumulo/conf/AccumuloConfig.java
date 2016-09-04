@@ -24,6 +24,7 @@ import io.airlift.units.Duration;
 import javax.validation.constraints.Min;
 import javax.validation.constraints.NotNull;
 
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static com.facebook.presto.accumulo.AccumuloErrorCode.VALIDATION;
@@ -41,6 +42,10 @@ public class AccumuloConfig
     public static final String METADATA_MANAGER_CLASS = "accumulo.metadata.manager.class";
     public static final String CARDINALITY_CACHE_SIZE = "accumulo.cardinality.cache.size";
     public static final String CARDINALITY_CACHE_EXPIRE_DURATION = "accumulo.cardinality.cache.expire.duration";
+    public static final String REDIS_SENTINEL_MASTER = "accumulo.redis.sentinel.master";
+    public static final String REDIS_SENTINELS = "accumulo.redis.sentinels";
+    public static final String REDIS_HOST = "accumulo.redis.host";
+    public static final String REDIS_PORT = "accumulo.redis.port";
 
     private String instance = null;
     private String zooKeepers = null;
@@ -50,6 +55,10 @@ public class AccumuloConfig
     private String metaManClass = "default";
     private int cardinalityCacheSize = 100_000;
     private Duration cardinalityCacheExpiration = new Duration(5, TimeUnit.MINUTES);
+    private Optional<String> redisSentinelMaster = Optional.empty();
+    private String[] redisSentinels = {"localhost:26379"};
+    private String redisHost = "localhost";
+    private int redisPort = 6379;
 
     @NotNull
     public String getInstance()
@@ -172,5 +181,53 @@ public class AccumuloConfig
     public void setCardinalityCacheExpiration(Duration cardinalityCacheExpiration)
     {
         this.cardinalityCacheExpiration = cardinalityCacheExpiration;
+    }
+
+    public Optional<String> getRedisSentinelMaster()
+    {
+        return redisSentinelMaster;
+    }
+
+    @Config(REDIS_SENTINEL_MASTER)
+    @ConfigDescription("Redis sentinel master name.  Only necessary if using RedisMetricsStorage and you're using sentinel.  Default is empty. If this is set, the values of accumulo.redis.host and accumulo.redis.port are ignored.")
+    public void setRedisSentinelMaster(String redisSentinelMaster)
+    {
+        this.redisSentinelMaster = Optional.ofNullable(redisSentinelMaster);
+    }
+
+    public String[] getRedisSentinels()
+    {
+        return redisSentinels;
+    }
+
+    @Config(REDIS_SENTINELS)
+    @ConfigDescription("Comma-delimited list of Redis sentinels.  Only necessary if using RedisMetricsStorage and you're using sentinel.  Default is localhost:26379.")
+    public void setRedisSentinels(String redisSentinels)
+    {
+        this.redisSentinels = redisSentinels.split(",");
+    }
+
+    public String getRedisHost()
+    {
+        return redisHost;
+    }
+
+    @Config(REDIS_HOST)
+    @ConfigDescription("Redis host name.  Only necessary if using RedisMetricsStorage.  Default localhost.")
+    public void setRedisHost(String redisHost)
+    {
+        this.redisHost = redisHost;
+    }
+
+    public int getRedisPort()
+    {
+        return redisPort;
+    }
+
+    @Config(REDIS_PORT)
+    @ConfigDescription("Redis port.  Only necessary if using RedisMetricsStorage.  Default 6379.")
+    public void setRedisPort(int redisPort)
+    {
+        this.redisPort = redisPort;
     }
 }
