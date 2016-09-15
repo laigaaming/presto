@@ -49,7 +49,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.facebook.presto.accumulo.AccumuloErrorCode.INTERNAL_ERROR;
 import static com.facebook.presto.accumulo.AccumuloErrorCode.IO_ERROR;
-import static com.facebook.presto.accumulo.io.AccumuloPageSink.ROW_ID_COLUMN;
+import static com.facebook.presto.accumulo.io.PrestoBatchWriter.ROW_ID_COLUMN;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.DateType.DATE;

@@ -18,7 +18,6 @@ import com.facebook.presto.spi.ErrorCodeSupplier;
 import com.facebook.presto.spi.ErrorType;
 
 import static com.facebook.presto.spi.ErrorType.EXTERNAL;
-import static com.facebook.presto.spi.ErrorType.USER_ERROR;
 
 public enum AccumuloErrorCode
         implements ErrorCodeSupplier
@@ -29,7 +28,7 @@ public enum AccumuloErrorCode
     INTERNAL_ERROR(0, ErrorType.INTERNAL_ERROR),
 
     // Thrown when a user tries to do an unsupported operation
-    NOT_SUPPORTED(1, USER_ERROR),
+    NOT_SUPPORTED(1, ErrorType.USER_ERROR),
 
     // Thrown when an Accumulo error is caught that we were not expecting,
     // such as when a create table operation fails (even though we know it will succeed due to our validation steps)
@@ -43,7 +42,7 @@ public enum AccumuloErrorCode
 
     // Thrown when an error occurs in validating operations within the connector,
     // such as a user trying to create a table that already exists in Accumulo
-    VALIDATION(5, USER_ERROR),
+    VALIDATION(5, ErrorType.USER_ERROR),
 
     // Thrown when a table that is expected to exist does not exist
     ACCUMULO_TABLE_DNE(6, EXTERNAL),
@@ -57,8 +56,8 @@ public enum AccumuloErrorCode
     // Thrown when an attempt is made to create a view that is the same name as an existing Presto table
     VIEW_IS_TABLE(9, EXTERNAL),
 
-    // Thrown when a column is unable to be discovered
-    COLUMN_NOT_FOUND(10, USER_ERROR),
+    // Thrown when a user provides invalid input
+    USER_ERROR(10, ErrorType.USER_ERROR),
 
     // Thrown when an attempt to start/stop MiniAccumuloCluster fails (testing only)
     MINI_ACCUMULO(11, EXTERNAL);
