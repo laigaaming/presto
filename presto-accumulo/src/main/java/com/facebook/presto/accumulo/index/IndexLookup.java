@@ -26,7 +26,11 @@ import com.facebook.presto.accumulo.serializers.AccumuloRowSerializer;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.NodeManager;
 import com.facebook.presto.spi.PrestoException;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.util.concurrent.MoreExecutors;
 import io.airlift.log.Logger;
@@ -42,6 +46,7 @@ import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.security.Authorizations;
 import org.apache.hadoop.io.Text;
 
+import javax.annotation.Nonnull;
 import javax.inject.Inject;
 
 import java.util.ArrayList;
@@ -49,6 +54,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -75,6 +81,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.weakref.jmx.internal.guava.base.Objects.toStringHelper;
 
 /**
  * Class to assist the Presto connector, and maybe external applications,
@@ -90,8 +97,10 @@ public class IndexLookup
     private final ExecutorService executor;
     private final NodeManager nodeManager;
     private final int maxIndexLookup;
+    private final LoadingCache<IndexCacheKey, Set<Range>> indexCache;
 
     @Inject
+    @SuppressWarnings("unchecked")
     public IndexLookup(Connector connector, AccumuloConfig config, NodeManager nodeManager)
     {
         this.connector = requireNonNull(connector, "connector is null");
@@ -106,6 +115,16 @@ public class IndexLookup
                 ));
 
         this.maxIndexLookup = config.getMaxIndexLookupCardinality();
+
+        CacheBuilder cacheBuilder = CacheBuilder.newBuilder()
+                .maximumSize(500)
+                .expireAfterWrite(10, SECONDS);
+
+        if (LOG.isDebugEnabled()) {
+            cacheBuilder.recordStats();
+        }
+
+        this.indexCache = (LoadingCache<IndexCacheKey, Set<Range>>) cacheBuilder.build(new IndexCacheLoader(connector));
     }
 
     /**
@@ -381,38 +400,7 @@ public class IndexLookup
         // For each column/constraint pair we submit a task to scan the index ranges
         List<Callable<Set<Range>>> tasks = new ArrayList<>();
         for (IndexQueryParameters queryParameters : indexParameters) {
-            Callable<Set<Range>> task = () -> {
-                BatchScanner scanner = null;
-                try {
-                    // Create a batch scanner against the index table, setting the ranges
-                    scanner = connector.createBatchScanner(indexTable, auths, 10);
-                    scanner.setRanges(queryParameters.getRanges());
-
-                    // Fetch the column family for this specific column
-                    scanner.fetchColumnFamily(queryParameters.getIndexFamily());
-
-                    // For each entry in the scanner
-                    Text tmpQualifier = new Text();
-                    Set<Range> columnRanges = new HashSet<>();
-                    for (Entry<Key, Value> entry : scanner) {
-                        entry.getKey().getColumnQualifier(tmpQualifier);
-
-                        // Add to our column ranges if it is in one of the row ID ranges
-                        if (inRange(tmpQualifier, rowIDRanges)) {
-                            columnRanges.add(new Range(tmpQualifier));
-                        }
-                    }
-
-                    LOG.info("Retrieved %d ranges for index column %s", columnRanges.size(), queryParameters.getIndexColumn());
-                    return columnRanges;
-                }
-                finally {
-                    if (scanner != null) {
-                        scanner.close();
-                    }
-                }
-            };
-            tasks.add(task);
+            tasks.add(() -> ImmutableSet.copyOf(indexCache.get(new IndexCacheKey(indexTable, auths, rowIDRanges, queryParameters))));
         }
 
         executor.invokeAll(tasks).forEach(future ->
@@ -463,5 +451,108 @@ public class IndexLookup
     {
         Key qualifier = new Key(text);
         return ranges.stream().map(AccumuloRange::getRange).anyMatch(r -> !r.beforeStartKey(qualifier) && !r.afterEndKey(qualifier));
+    }
+
+    private static class IndexCacheKey
+    {
+        String indexTable;
+        Authorizations auths;
+        Collection<AccumuloRange> rowIdRanges;
+        IndexQueryParameters queryParameters;
+
+        public IndexCacheKey(
+                String indexTable,
+                Authorizations auths,
+                Collection<AccumuloRange> rowIdRanges,
+                IndexQueryParameters queryParameters)
+        {
+            checkArgument(rowIdRanges.size() > 0, "Row ID ranges must be non-empty");
+
+            this.indexTable = requireNonNull(indexTable, "indexTable is null");
+            this.auths = requireNonNull(auths, "auths is null");
+            this.rowIdRanges = requireNonNull(rowIdRanges, "rowIdRanges is null");
+            this.queryParameters = requireNonNull(queryParameters, "constraint is null");
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hash(indexTable, auths, rowIdRanges, queryParameters);
+        }
+
+        @Override
+        public boolean equals(Object obj)
+        {
+            if (this == obj) {
+                return true;
+            }
+            if ((obj == null) || (getClass() != obj.getClass())) {
+                return false;
+            }
+
+            IndexCacheKey other = (IndexCacheKey) obj;
+            return Objects.equals(this.indexTable, other.indexTable)
+                    && Objects.equals(this.auths, other.auths)
+                    && Objects.equals(this.rowIdRanges, other.rowIdRanges)
+                    && Objects.equals(this.queryParameters, other.queryParameters);
+        }
+
+        @Override
+        public String toString()
+        {
+            return toStringHelper(this)
+                    .add("indexTable", indexTable)
+                    .add("auths", auths)
+                    .add("numRowIdRanges", rowIdRanges.size())
+                    .add("queryParameters", queryParameters)
+                    .toString();
+        }
+    }
+
+    private static class IndexCacheLoader
+            extends CacheLoader<IndexCacheKey, Set<Range>>
+    {
+        private Connector connector;
+
+        public IndexCacheLoader(Connector connector)
+        {
+            this.connector = requireNonNull(connector, "connector is null");
+        }
+
+        @Override
+        public Set<Range> load(@Nonnull IndexCacheKey key)
+                throws Exception
+        {
+            // Create a batch scanner against the index table
+            BatchScanner scanner = null;
+            try {
+                // Create a batch scanner against the index table, setting the ranges
+                scanner = connector.createBatchScanner(key.indexTable, key.auths, 10);
+                scanner.setRanges(key.queryParameters.getRanges());
+
+                // Fetch the column family for this specific column
+                scanner.fetchColumnFamily(key.queryParameters.getIndexFamily());
+
+                // For each entry in the scanner
+                Text tmpQualifier = new Text();
+                Set<Range> columnRanges = new HashSet<>();
+                for (Entry<Key, Value> entry : scanner) {
+                    entry.getKey().getColumnQualifier(tmpQualifier);
+
+                    // Add to our column ranges if it is in one of the row ID ranges
+                    if (inRange(tmpQualifier, key.rowIdRanges)) {
+                        columnRanges.add(new Range(tmpQualifier));
+                    }
+                }
+
+                LOG.info("Retrieved %d ranges for index column %s", columnRanges.size(), key.queryParameters.getIndexColumn());
+                return columnRanges;
+            }
+            finally {
+                if (scanner != null) {
+                    scanner.close();
+                }
+            }
+        }
     }
 }
