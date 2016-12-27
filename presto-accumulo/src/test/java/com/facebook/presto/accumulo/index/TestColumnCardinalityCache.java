@@ -71,6 +71,7 @@ import java.util.stream.Collectors;
 
 import static com.facebook.presto.accumulo.AccumuloClient.getRangeFromPrestoRange;
 import static com.facebook.presto.accumulo.io.PrestoBatchWriter.toMutation;
+import static com.facebook.presto.accumulo.metadata.AccumuloTable.getFullTableName;
 import static com.facebook.presto.spi.type.DateType.DATE;
 import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
@@ -157,9 +158,9 @@ public class TestColumnCardinalityCache
 
         List<AccumuloColumnHandle> columns = fromTpchColumns(TpchTable.LINE_ITEM.getColumns());
         AccumuloRowSerializer serializer = new LexicoderRowSerializer();
-        String indexTable = Indexer.getMetricsTableName(SCHEMA, TpchTable.LINE_ITEM.getTableName());
+        String tableName = getFullTableName(SCHEMA, TpchTable.LINE_ITEM.getTableName());
         MultiTableBatchWriter multiTableBatchWriter = connector.createMultiTableBatchWriter(new BatchWriterConfig());
-        BatchWriter writer = multiTableBatchWriter.getBatchWriter(indexTable);
+        BatchWriter writer = multiTableBatchWriter.getBatchWriter(tableName);
         MetricsWriter metricsWriter = table.getMetricsStorageInstance(connector).newWriter(table);
         Indexer indexer = new Indexer(connector, table, multiTableBatchWriter.getBatchWriter(table.getIndexTableName()), metricsWriter);
 
