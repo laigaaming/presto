@@ -22,6 +22,7 @@ import com.facebook.presto.spi.RecordCursor;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.VarbinaryType;
 import com.facebook.presto.spi.type.VarcharType;
+import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 import org.apache.accumulo.core.client.BatchScanner;
@@ -65,6 +66,7 @@ import static java.util.Objects.requireNonNull;
 public class AccumuloRecordCursor
         implements RecordCursor
 {
+    private static final Logger LOG = Logger.get(AccumuloRecordCursor.class);
     private final List<AccumuloColumnHandle> columnHandles;
     private final String[] fieldToColumnName;
     private final BatchScanner scanner;
@@ -274,6 +276,7 @@ public class AccumuloRecordCursor
     {
         scanner.close();
         nanoEnd = System.nanoTime();
+        LOG.info("Retrieving %d bytes took %s ms", getCompletedBytes(), getReadTimeNanos() / 1000000);
     }
 
     /**
