@@ -37,6 +37,7 @@ import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Mutation;
 import org.apache.accumulo.core.data.Range;
 import org.apache.accumulo.core.data.Value;
+import org.apache.accumulo.core.data.ArrayByteSequence;
 import org.apache.accumulo.core.security.Authorizations;
 import org.apache.accumulo.core.security.ColumnVisibility;
 import org.apache.commons.lang.ArrayUtils;
@@ -46,6 +47,7 @@ import org.apache.hadoop.io.Text;
 import javax.annotation.concurrent.NotThreadSafe;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -395,6 +397,24 @@ public class Indexer
         addIndexMutation(row, family, qualifier, visibility, System.currentTimeMillis(), truncateTimestamp);
     }
 
+    private void getVisibilityTerms(ColumnVisibility.Node node, ColumnVisibility cv, List<ColumnVisibility> cvs)
+    {
+        switch(node.getType()){
+            case AND:
+                cvs.add(new ColumnVisibility((new ArrayByteSequence(cv.getExpression(), node.getTermStart(), node.getTermEnd() - node.getTermStart()).toArray())));
+                break;
+            case EMPTY:
+                cvs.add(new ColumnVisibility());
+                break;
+            case TERM:
+                cvs.add(new ColumnVisibility(node.getTerm(cv.getExpression()).toArray()));
+                break;
+            case OR:
+                node.getChildren().stream().forEach(child -> getVisibilityTerms(child, cv, cvs));
+                break;
+        }
+    }
+
     private void addIndexMutation(ByteBuffer row, ByteBuffer family, byte[] qualifier, ColumnVisibility visibility, long timestamp, boolean truncateTimestamp)
             throws MutationsRejectedException
     {
@@ -403,9 +423,12 @@ public class Indexer
         indexMutation.put(family.array(), qualifier, visibility, timestamp, EMPTY_BYTES);
         indexWriter.addMutation(indexMutation);
 
+        List<ColumnVisibility> cvs = new ArrayList<>();
+        getVisibilityTerms(visibility.getParseTree(), visibility, cvs);
+
         // Increment the cardinality metrics for this value of index
         // metrics is a mapping of row ID to column family
-        metricsWriter.incrementCardinality(row, family, visibility, truncateTimestamp);
+        cvs.stream().forEach(cv -> metricsWriter.incrementCardinality(row, family, cv, truncateTimestamp));
     }
 
     private void deleteIndexMutation(ByteBuffer row, ByteBuffer family, byte[] qualifier, ColumnVisibility visibility, boolean truncateTimestamp)
