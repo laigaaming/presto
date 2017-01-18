@@ -16,6 +16,7 @@ package com.facebook.presto.accumulo.index;
 import com.facebook.presto.accumulo.index.metrics.MetricCacheKey;
 import com.facebook.presto.accumulo.index.metrics.MetricsStorage;
 import com.facebook.presto.accumulo.model.AccumuloColumnConstraint;
+import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.PrestoException;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -33,6 +34,8 @@ import org.apache.accumulo.core.data.Range;
 import org.apache.accumulo.core.security.Authorizations;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.hadoop.io.Text;
+import org.apache.htrace.Sampler;
+import org.apache.htrace.TraceScope;
 
 import javax.annotation.Nonnull;
 
@@ -54,8 +57,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static com.facebook.presto.accumulo.AccumuloErrorCode.UNEXPECTED_ACCUMULO_ERROR;
+import static com.facebook.presto.accumulo.conf.AccumuloSessionProperties.getIndexCardinalityCachePollingDuration;
+import static com.facebook.presto.accumulo.conf.AccumuloSessionProperties.isIndexShortCircuitEnabled;
+import static com.facebook.presto.accumulo.conf.AccumuloSessionProperties.isTracingEnabled;
+import static com.facebook.presto.accumulo.index.Indexer.getIndexTableName;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static org.apache.htrace.Trace.startSpan;
 
 /**
  * This class is an indexing utility to cache the cardinality of a column value for every table.
@@ -104,24 +112,24 @@ public class ColumnCardinalityCache
      * Gets the cardinality for each {@link AccumuloColumnConstraint}.
      * Given constraints are expected to be indexed! Who knows what would happen if they weren't!
      *
+     * @param session Connector session
      * @param schema Schema name
      * @param table Table name
      * @param queryParameters List of index query parameters
      * @param auths Scan-time authorizations for loading any cardinalities from Accumulo
      * @param earlyReturnThreshold Smallest acceptable cardinality to return early while other tasks complete. Use a negative value to disable early return.
-     * @param pollingDuration Duration for polling the cardinality completion service. Use a Duration of zero to disable polling.
      * @param metricsStorage Metrics storage for looking up the cardinality
      * @return An immutable multimap of cardinality to column constraint, sorted by cardinality from smallest to largest
      * @throws TableNotFoundException If the metrics table does not exist
      * @throws ExecutionException If another error occurs; I really don't even know anymore.
      */
     public Multimap<Long, IndexQueryParameters> getCardinalities(
+            ConnectorSession session,
             String schema,
             String table,
             List<IndexQueryParameters> queryParameters,
             Authorizations auths,
             long earlyReturnThreshold,
-            Duration pollingDuration,
             MetricsStorage metricsStorage)
             throws ExecutionException, TableNotFoundException
     {
@@ -129,8 +137,15 @@ public class ColumnCardinalityCache
         requireNonNull(table, "table is null");
         requireNonNull(queryParameters, "queryParameters is null");
         requireNonNull(auths, "auths is null");
-        requireNonNull(pollingDuration, "pollingDuration is null");
         requireNonNull(metricsStorage, "metricsStorage is null");
+
+        Duration pollingDuration;
+        if (isIndexShortCircuitEnabled(session)) {
+            pollingDuration = getIndexCardinalityCachePollingDuration(session);
+        }
+        else {
+            pollingDuration = new Duration(0, MILLISECONDS);
+        }
 
         if (queryParameters.isEmpty()) {
             return ImmutableMultimap.of();
@@ -142,10 +157,21 @@ public class ColumnCardinalityCache
         CompletionService<Pair<Long, IndexQueryParameters>> executor = new ExecutorCompletionService<>(executorService);
         queryParameters.forEach(queryParameter ->
                 executor.submit(() -> {
-                            long start = System.currentTimeMillis();
-                            long cardinality = getColumnCardinality(schema, table, auths, queryParameter);
-                            LOG.debug("Cardinality for column %s is %s, took %s ms", queryParameter.getIndexColumn(), cardinality, System.currentTimeMillis() - start);
-                            return Pair.of(cardinality, queryParameter);
+                            Optional<TraceScope> cardinalityTrace = Optional.empty();
+                            try {
+                                if (isTracingEnabled(session)) {
+                                    String traceName = String.format("%s:%s_metrics:ColumnCardinalityCache:%s", session.getQueryId(), getIndexTableName(schema, table), queryParameter.getIndexFamily());
+                                    cardinalityTrace = Optional.of(startSpan(traceName, Sampler.ALWAYS));
+                                }
+
+                                long start = System.currentTimeMillis();
+                                long cardinality = getColumnCardinality(schema, table, auths, queryParameter);
+                                LOG.debug("Cardinality for column %s is %s, took %s ms", queryParameter.getIndexColumn(), cardinality, System.currentTimeMillis() - start);
+                                return Pair.of(cardinality, queryParameter);
+                            }
+                            finally {
+                                cardinalityTrace.ifPresent(TraceScope::close);
+                            }
                         }
                 ));
 
